@@ -14,7 +14,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Test route (để tránh Cannot GET /)
 app.get('/', (req, res) => {
-  res.send('Backend chamcong đang chạy 🚀');
+  res.send('Backend chamcong đang chạy nhanh 🚀');
 });
 
 // Database connection
