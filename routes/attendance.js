@@ -1,17 +1,16 @@
 const express = require('express');
 const cors = require('cors');
-const app = express();
 const router = express.Router();
 const db = require('../models/db');
 const auth = require('../middleware/auth');
 const ExcelJS = require('exceljs');
 
 // Cấu hình CORS
-app.use(cors({
-  origin: 'http://localhost:3000',         // URL frontend của bạn
-  credentials: true,                       // cho phép cookie nếu cần (tùy chọn)
-  allowedHeaders: ['Content-Type', 'Authorization'], // cho phép header Authorization
-  optionsSuccessStatus: 200                 // một số trình duyệt cũ không hiểu 204
+router.use(cors({
+  origin: 'http://localhost:3000',
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200
 }));
 
 // Helper functions
@@ -149,6 +148,80 @@ const requireAdmin = async (req, res, next) => {
     res.status(500).json({ message: 'Lỗi server' });
   }
 };
+
+// ======================
+// ĐĂNG KÝ TÀI KHOẢN MỚI (CHỈ ADMIN)
+// ======================
+router.post('/auth/register', auth, requireAdmin, async (req, res) => {
+  const { ma_nhan_vien, ten_nhan_vien, password } = req.body;
+  
+  try {
+    // Kiểm tra mã nhân viên đã tồn tại
+    const [existing] = await db.query(
+      'SELECT id FROM nhanvien WHERE ma_nhan_vien = ?',
+      [ma_nhan_vien]
+    );
+    
+    if (existing.length > 0) {
+      return res.status(400).json({ message: 'Mã nhân viên đã tồn tại' });
+    }
+    
+    // Mã hóa mật khẩu
+    const bcrypt = require('bcrypt');
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    
+    // Tạo nhân viên mới
+    await db.query(
+      `INSERT INTO nhanvien (ma_nhan_vien, ten_nhan_vien, password, is_admin) 
+       VALUES (?, ?, ?, 0)`,
+      [ma_nhan_vien, ten_nhan_vien, hashedPassword]
+    );
+    
+    res.json({
+      success: true,
+      message: 'Tạo tài khoản thành công'
+    });
+  } catch (error) {
+    console.error('Lỗi tạo tài khoản:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+});
+
+// ======================
+// ADMIN RESET MẬT KHẨU CHO USER
+// ======================
+router.post('/admin/reset-password', auth, requireAdmin, async (req, res) => {
+  const { ma_nhan_vien, new_password } = req.body;
+
+  if (!ma_nhan_vien || !new_password) {
+    return res.status(400).json({ message: 'Thiếu thông tin' });
+  }
+
+  try {
+    // Kiểm tra user tồn tại
+    const [user] = await db.query('SELECT id FROM nhanvien WHERE ma_nhan_vien = ?', [ma_nhan_vien]);
+    if (user.length === 0) {
+      return res.status(404).json({ message: 'Không tìm thấy nhân viên' });
+    }
+
+    // Mã hóa mật khẩu mới
+    const bcrypt = require('bcrypt');
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(new_password, saltRounds);
+
+    // Cập nhật
+    await db.query('UPDATE nhanvien SET password = ? WHERE ma_nhan_vien = ?', [hashedPassword, ma_nhan_vien]);
+
+    res.json({
+      success: true,
+      message: 'Đặt lại mật khẩu thành công'
+    });
+  } catch (error) {
+    console.error('Lỗi reset mật khẩu:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+});
 
 // ======================
 // ADMIN API: LẤY DANH SÁCH NHÂN VIÊN - ĐẦY ĐỦ
@@ -2834,9 +2907,6 @@ router.get('/admin/pending-time-adjustments', auth, requireAdmin, async (req, re
 
 // ======================
 // ADMIN API: Duyệt/từ chối yêu cầu điều chỉnh giờ (ĐÃ SỬA)
-// ======================
-// ======================
-// ADMIN API: Duyệt/từ chối yêu cầu điều chỉnh giờ (ĐÃ SỬA LỖI)
 // ======================
 router.post('/admin/time-adjustment/:id/process', auth, requireAdmin, async (req, res) => {
   const { id } = req.params;

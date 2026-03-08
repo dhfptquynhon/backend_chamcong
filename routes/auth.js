@@ -1,63 +1,62 @@
+// routes/auth.js
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('../models/db');
 
-// Đăng ký nhân viên mới
-router.post('/register', async (req, res) => {
-  const { ma_nhan_vien, ten_nhan_vien, password } = req.body;
-  
-  try {
-    // Kiểm tra nhân viên đã tồn tại chưa
-    const [existing] = await db.query('SELECT * FROM nhanvien WHERE ma_nhan_vien = ?', [ma_nhan_vien]);
-    if (existing.length > 0) {
-      return res.status(400).json({ message: 'Mã nhân viên đã tồn tại' });
-    }
-
-    // Mã hóa mật khẩu
-    const hashedPassword = await bcrypt.hash(password, 10);
-
-    // Tạo nhân viên mới
-    await db.query(
-      'INSERT INTO nhanvien (ma_nhan_vien, ten_nhan_vien, password) VALUES (?, ?, ?)',
-      [ma_nhan_vien, ten_nhan_vien, hashedPassword]
-    );
-
-    res.status(201).json({ message: 'Đăng ký thành công' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Lỗi server' });
-  }
-});
-
 // Đăng nhập
 router.post('/login', async (req, res) => {
-  const { ma_nhan_vien, password } = req.body;
-
   try {
-    // Tìm nhân viên
-    const [results] = await db.query('SELECT * FROM nhanvien WHERE ma_nhan_vien = ?', [ma_nhan_vien]);
-    if (results.length === 0) {
-      return res.status(401).json({ message: 'Mã nhân viên hoặc mật khẩu không đúng' });
+    const { ma_nhan_vien, password } = req.body;
+
+    // Kiểm tra đầu vào
+    if (!ma_nhan_vien || !password) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Vui lòng nhập mã nhân viên và mật khẩu' 
+      });
     }
 
-    const employee = results[0];
+    // Tìm nhân viên trong database
+    const [employees] = await db.query(
+      'SELECT * FROM nhanvien WHERE ma_nhan_vien = ?', 
+      [ma_nhan_vien]
+    );
+
+    if (employees.length === 0) {
+      return res.status(401).json({ 
+        success: false,
+        message: 'Mã nhân viên hoặc mật khẩu không đúng' 
+      });
+    }
+
+    const employee = employees[0];
 
     // So sánh mật khẩu
     const isMatch = await bcrypt.compare(password, employee.password);
     if (!isMatch) {
-      return res.status(401).json({ message: 'Mã nhân viên hoặc mật khẩu không đúng' });
+      return res.status(401).json({ 
+        success: false,
+        message: 'Mã nhân viên hoặc mật khẩu không đúng' 
+      });
     }
 
-    // Tạo token JWT
+    // Tạo JWT token
     const token = jwt.sign(
-      { id: employee.id, ma_nhan_vien: employee.ma_nhan_vien },
-      process.env.JWT_SECRET,
+      { 
+        id: employee.id, 
+        ma_nhan_vien: employee.ma_nhan_vien,
+        ten_nhan_vien: employee.ten_nhan_vien
+      },
+      process.env.JWT_SECRET || 'your-secret-key',
       { expiresIn: '8h' }
     );
 
+    // Trả về thông tin
     res.json({ 
+      success: true,
+      message: 'Đăng nhập thành công',
       token,
       employee: {
         id: employee.id,
@@ -66,50 +65,102 @@ router.post('/login', async (req, res) => {
         is_admin: employee.is_admin === 1 || employee.is_admin === true
       }
     });
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Lỗi server' });
+    console.error('Login error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Lỗi server, vui lòng thử lại sau' 
+    });
   }
 });
 
-// Quên mật khẩu - đổi mật khẩu mới bằng mật khẩu mặc định
-router.post('/forgot-password', async (req, res) => {
-  console.log('Forgot password endpoint called');
-  console.log('Request body:', req.body);
-  
-  const { ma_nhan_vien, default_password, new_password } = req.body;
-  const DEFAULT_PASSWORD = '123@123a';
-
+// Đăng ký (chỉ admin mới được dùng)
+router.post('/register', async (req, res) => {
   try {
-    // Kiểm tra dữ liệu đầu vào
-    if (!ma_nhan_vien || !default_password || !new_password) {
-      return res.status(400).json({ message: 'Vui lòng điền đầy đủ thông tin' });
+    const { ma_nhan_vien, ten_nhan_vien, password, is_admin } = req.body;
+
+    // Kiểm tra đầu vào
+    if (!ma_nhan_vien || !ten_nhan_vien || !password) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Vui lòng điền đầy đủ thông tin' 
+      });
     }
 
-    // Kiểm tra mật khẩu mặc định
-    if (default_password !== DEFAULT_PASSWORD) {
-      return res.status(401).json({ message: 'Mật khẩu mặc định không đúng' });
-    }
-
-    // Tìm nhân viên
-    const [results] = await db.query('SELECT * FROM nhanvien WHERE ma_nhan_vien = ?', [ma_nhan_vien]);
-    if (results.length === 0) {
-      return res.status(404).json({ message: 'Mã nhân viên không tồn tại' });
-    }
-
-    // Mã hóa mật khẩu mới
-    const hashedPassword = await bcrypt.hash(new_password, 10);
-
-    // Cập nhật mật khẩu mới
-    await db.query(
-      'UPDATE nhanvien SET password = ? WHERE ma_nhan_vien = ?',
-      [hashedPassword, ma_nhan_vien]
+    // Kiểm tra nhân viên đã tồn tại chưa
+    const [existing] = await db.query(
+      'SELECT id FROM nhanvien WHERE ma_nhan_vien = ?', 
+      [ma_nhan_vien]
     );
 
-    res.json({ message: 'Đổi mật khẩu thành công. Vui lòng đăng nhập với mật khẩu mới.' });
+    if (existing.length > 0) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Mã nhân viên đã tồn tại' 
+      });
+    }
+
+    // Mã hóa mật khẩu
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Tạo nhân viên mới
+    await db.query(
+      'INSERT INTO nhanvien (ma_nhan_vien, ten_nhan_vien, password, is_admin) VALUES (?, ?, ?, ?)',
+      [ma_nhan_vien, ten_nhan_vien, hashedPassword, is_admin ? 1 : 0]
+    );
+
+    res.status(201).json({ 
+      success: true,
+      message: 'Đăng ký thành công' 
+    });
+
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Lỗi server' });
+    console.error('Register error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'Lỗi server, vui lòng thử lại sau' 
+    });
+  }
+});
+
+// Lấy thông tin user hiện tại (dùng để kiểm tra token)
+router.get('/me', async (req, res) => {
+  try {
+    const token = req.header('Authorization')?.replace('Bearer ', '');
+    
+    if (!token) {
+      return res.status(401).json({ 
+        success: false,
+        message: 'Không tìm thấy token' 
+      });
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+    
+    const [employees] = await db.query(
+      'SELECT id, ma_nhan_vien, ten_nhan_vien, is_admin FROM nhanvien WHERE ma_nhan_vien = ?',
+      [decoded.ma_nhan_vien]
+    );
+
+    if (employees.length === 0) {
+      return res.status(401).json({ 
+        success: false,
+        message: 'Không tìm thấy thông tin người dùng' 
+      });
+    }
+
+    res.json({ 
+      success: true,
+      employee: employees[0]
+    });
+
+  } catch (error) {
+    console.error('Get me error:', error);
+    res.status(401).json({ 
+      success: false,
+      message: 'Token không hợp lệ' 
+    });
   }
 });
 
