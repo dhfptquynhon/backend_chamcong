@@ -4,6 +4,14 @@ console.log("DB HOST:", process.env.DB_HOST);
 console.log("DB USER:", process.env.DB_USER);
 console.log("DB DATABASE:", process.env.DB_DATABASE);
 console.log("DB PORT:", process.env.DB_PORT);
+pool.getConnection()
+  .then(conn => {
+    console.log("✅ Connected to MySQL");
+    conn.release();
+  })
+  .catch(err => {
+    console.error("❌ MySQL connection failed:", err);
+  });
 
 const pool = mysql.createPool({
   host: process.env.DB_HOST,
