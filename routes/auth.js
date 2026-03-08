@@ -8,44 +8,41 @@ const db = require('../models/db');
 // Đăng nhập
 router.post('/login', async (req, res) => {
   try {
-    const { ma_nhan_vien, password } = req.body;
+    const { ma_nhan_vien, mat_khau } = req.body;
 
-    // Kiểm tra đầu vào
-    if (!ma_nhan_vien || !password) {
-      return res.status(400).json({ 
+    if (!ma_nhan_vien || !mat_khau) {
+      return res.status(400).json({
         success: false,
-        message: 'Vui lòng nhập mã nhân viên và mật khẩu' 
+        message: 'Vui lòng nhập mã nhân viên và mật khẩu'
       });
     }
 
-    // Tìm nhân viên trong database
     const [employees] = await db.query(
-      'SELECT * FROM nhanvien WHERE ma_nhan_vien = ?', 
+      'SELECT * FROM nhanvien WHERE ma_nhan_vien = ?',
       [ma_nhan_vien]
     );
 
     if (employees.length === 0) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        message: 'Mã nhân viên hoặc mật khẩu không đúng' 
+        message: 'Mã nhân viên hoặc mật khẩu không đúng'
       });
     }
 
     const employee = employees[0];
 
-    // So sánh mật khẩu
-    const isMatch = await bcrypt.compare(password, employee.password);
+    const isMatch = await bcrypt.compare(mat_khau, employee.password);
+
     if (!isMatch) {
-      return res.status(401).json({ 
+      return res.status(401).json({
         success: false,
-        message: 'Mã nhân viên hoặc mật khẩu không đúng' 
+        message: 'Mã nhân viên hoặc mật khẩu không đúng'
       });
     }
 
-    // Tạo JWT token
     const token = jwt.sign(
-      { 
-        id: employee.id, 
+      {
+        id: employee.id,
         ma_nhan_vien: employee.ma_nhan_vien,
         ten_nhan_vien: employee.ten_nhan_vien
       },
@@ -53,8 +50,7 @@ router.post('/login', async (req, res) => {
       { expiresIn: '8h' }
     );
 
-    // Trả về thông tin
-    res.json({ 
+    res.json({
       success: true,
       message: 'Đăng nhập thành công',
       token,
@@ -68,9 +64,9 @@ router.post('/login', async (req, res) => {
 
   } catch (error) {
     console.error('Login error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
-      message: 'Lỗi server, vui lòng thử lại sau' 
+      message: 'Lỗi server, vui lòng thử lại sau'
     });
   }
 });
