@@ -1,7 +1,7 @@
 require('dotenv').config();
 process.env.TZ = 'Asia/Ho_Chi_Minh';
+
 const express = require('express');
-const mysql = require('mysql2');
 const cors = require('cors');
 
 const app = express();
@@ -12,26 +12,13 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Test route (để tránh Cannot GET /)
+// Test route
 app.get('/', (req, res) => {
-  res.send('Backend chamcong đang chạy nhanh 🚀');
+  res.send('Backend chamcong đang chạy 🚀');
 });
 
-// Database connection
-const db = mysql.createConnection({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_DATABASE
-});
-
-db.connect(err => {
-  if (err) {
-    console.error('❌ Error connecting to MySQL:', err);
-  } else {
-    console.log('✅ Connected to MySQL database');
-  }
-});
+// IMPORT DB (dùng db.js)
+const db = require('./db');
 
 // Routes
 const authRoutes = require('./routes/auth');
@@ -40,7 +27,7 @@ const attendanceRoutes = require('./routes/attendance');
 app.use('/api/auth', authRoutes);
 app.use('/api/attendance', attendanceRoutes);
 
-// Start server (CHỈ 1 lần)
+// Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
