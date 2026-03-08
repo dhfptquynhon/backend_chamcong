@@ -7,29 +7,81 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
+// ================= CORS CONFIG =================
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://frontend-chamcong.vercel.app"
+];
+
 app.use(cors({
-  origin: "*"
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("CORS not allowed"));
+    }
+  },
+  credentials: true
 }));
+
+// ================= MIDDLEWARE =================
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Test route
+// ================= TEST ROUTE =================
 app.get('/', (req, res) => {
   res.send('Backend chamcong đang chạy 🚀');
 });
 
-// IMPORT DB (dùng db.js)
+// ================= DATABASE =================
 const db = require('./models/db');
 
-// Routes
+// Test DB route
+app.get('/api/test-db', async (req, res) => {
+  try {
+    const [rows] = await db.query('SELECT 1 as test');
+    res.json({
+      success: true,
+      message: "Database connected",
+      data: rows
+    });
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
+// ================= ROUTES =================
 const authRoutes = require('./routes/auth');
 const attendanceRoutes = require('./routes/attendance');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/attendance', attendanceRoutes);
 
-// Start server
+// ================= 404 HANDLER =================
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "API route không tồn tại"
+  });
+});
+
+// ================= ERROR HANDLER =================
+app.use((err, req, res, next) => {
+  console.error("Server Error:", err);
+
+  res.status(500).json({
+    success: false,
+    message: "Lỗi server",
+    error: err.message
+  });
+});
+
+// ================= START SERVER =================
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
