@@ -18,7 +18,7 @@ app.get('/', (req, res) => {
 });
 
 // IMPORT DB (dùng db.js)
-const db = require('./db');
+const db = require('./models/db');
 
 // Routes
 const authRoutes = require('./routes/auth');
