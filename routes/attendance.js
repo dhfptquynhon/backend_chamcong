@@ -7,7 +7,6 @@ const ExcelJS = require('exceljs');
 
 // Cấu hình CORS
 router.use(cors({
-  origin: 'http://localhost:3000',
   credentials: true,
   allowedHeaders: ['Content-Type', 'Authorization'],
   optionsSuccessStatus: 200
