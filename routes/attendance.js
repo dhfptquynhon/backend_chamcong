@@ -6,11 +6,11 @@ const auth = require('../middleware/auth');
 const ExcelJS = require('exceljs');
 
 // Cấu hình CORS
-router.use(cors({
-  credentials: true,
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 200
-}));
+// router.use(cors({
+//   credentials: true,
+//   allowedHeaders: ['Content-Type', 'Authorization'],
+//   optionsSuccessStatus: 200
+// }));
 
 // Helper functions
 const pad = (n) => n.toString().padStart(2, '0');
