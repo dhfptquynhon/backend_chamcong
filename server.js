@@ -8,10 +8,24 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ================= CORS CONFIG =================
+const cors = require('cors');
+
 const allowedOrigins = [
-  "http://localhost:3000",
-  "https://frontend-chamcong.vercel.app"
+  'http://localhost:3000',
+  'https://frontend-chamcong.vercel.app'
 ];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Cho phép request không có origin (ví dụ Postman) hoặc nếu origin nằm trong danh sách
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true // nếu có gửi cookie/kèm auth
+}));
 
 app.use(cors({
   origin: function (origin, callback) {
