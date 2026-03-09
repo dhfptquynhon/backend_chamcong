@@ -1,3 +1,8 @@
+// ================= TEST CORS ROUTE =================
+app.get('/api/cors-test', (req, res) => {
+  res.json({ message: 'CORS is working!' });
+});
+
 require('dotenv').config();
 process.env.TZ = 'Asia/Ho_Chi_Minh';
 
