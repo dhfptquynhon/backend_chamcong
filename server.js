@@ -2,14 +2,12 @@ require('dotenv').config();
 process.env.TZ = 'Asia/Ho_Chi_Minh';
 
 const express = require('express');
-const cors = require('cors');
+const cors = require('cors'); // chỉ một lần
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ================= CORS CONFIG =================
-const cors = require('cors');
-
 const allowedOrigins = [
   'http://localhost:3000',
   'https://frontend-chamcong.vercel.app'
@@ -17,7 +15,7 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Cho phép request không có origin (ví dụ Postman) hoặc nếu origin nằm trong danh sách
+    // Cho phép request không có origin (ví dụ Postman, mobile app) hoặc nếu origin nằm trong danh sách
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -25,19 +23,6 @@ app.use(cors({
     }
   },
   credentials: true // nếu có gửi cookie/kèm auth
-}));
-
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("CORS not allowed"));
-    }
-  },
-  credentials: true
 }));
 
 // ================= MIDDLEWARE =================
