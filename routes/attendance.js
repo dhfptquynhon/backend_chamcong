@@ -3601,16 +3601,14 @@ router.post('/schedule/register', auth, async (req, res) => {
     
     // KIỂM TRA 1: QUÁ GIỜ ĐĂNG KÝ
     // Nếu ngày đăng ký là hôm nay và đã qua giờ bắt đầu ca
-    if (date === today && currentTime > shiftStart) {
-      return res.status(400).json({ 
-        message: `Không thể đăng ký ca này vì đã quá giờ bắt đầu (${shiftStart})` 
-      });
+    if (date < today) {
+      return res.status(400).json({ message: 'Không thể đăng ký ca trong quá khứ' });
     }
     
-    // Nếu ngày đăng ký là ngày đã qua
-    if (date < today) {
+    // Nếu là hôm nay, kiểm tra đã quá giờ kết thúc ca chưa
+    if (date === today && currentTime > shiftEnd) {
       return res.status(400).json({ 
-        message: 'Không thể đăng ký ca trong quá khứ' 
+        message: `Không thể đăng ký ca này vì ca đã kết thúc lúc ${shiftEnd}` 
       });
     }
 
