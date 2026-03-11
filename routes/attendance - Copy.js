@@ -443,38 +443,8 @@ router.get('/admin/employee/:id/attendance', auth, requireAdmin, async (req, res
     const [rows] = await db.query(
       `SELECT 
         lt.*,
-        DATE(lt.ngay) as ngay_thang,
-        
-        -- Thông tin trực thay (nếu có)
-        tt.id as truc_thay_id,
-        tt.nguoi_dang_ky_id,
-        tt.nguoi_thuc_hien_id,
-        tt.lich_truc_goc_id,
-        tt.lich_truc_ao_id,
-        tt.ly_do as truc_thay_ly_do,
-        tt.trang_thai as truc_thay_trang_thai,
-        
-        -- Thông tin người thực hiện trực thay (B) - dành cho lịch gốc
-        nv_thuc_hien.ten_nhan_vien as ten_nguoi_truc_thay,
-        nv_thuc_hien.ma_nhan_vien as ma_nguoi_truc_thay,
-        
-        -- Thông tin người đăng ký gốc (A) - dành cho lịch ảo
-        nv_dang_ky.ten_nhan_vien as ten_nguoi_duoc_truc_thay,
-        nv_dang_ky.ma_nhan_vien as ma_nguoi_duoc_truc_thay,
-        
-        -- Xác định loại lịch
-        CASE 
-          WHEN tt.id IS NOT NULL AND tt.lich_truc_ao_id = lt.id THEN 'virtual'
-          WHEN tt.id IS NOT NULL AND tt.lich_truc_goc_id = lt.id THEN 'original'
-          ELSE 'normal'
-        END as loai_lich
-        
+        DATE(lt.ngay) as ngay_thang
       FROM lich_truc lt
-      LEFT JOIN truc_thay tt ON (lt.id = tt.lich_truc_goc_id OR lt.id = tt.lich_truc_ao_id)
-        AND tt.trang_thai IN ('active', 'completed')
-      LEFT JOIN nhanvien nv_thuc_hien ON tt.nguoi_thuc_hien_id = nv_thuc_hien.id
-      LEFT JOIN nhanvien nv_dang_ky ON tt.nguoi_dang_ky_id = nv_dang_ky.id
-      
       WHERE lt.nhan_vien_id = ?
         AND MONTH(lt.ngay) = ?
         AND YEAR(lt.ngay) = ?
@@ -1406,45 +1376,6 @@ router.get('/admin/pending-tructhay', auth, requireAdmin, async (req, res) => {
 });
 
 // ======================
-// ADMIN API: LẤY TẤT CẢ LỊCH SỬ TRỰC THAY (CÓ THỂ LỌC THEO THÁNG/NĂM)
-// ======================
-router.get('/admin/tructhay/all', auth, requireAdmin, async (req, res) => {
-  const { month, year } = req.query;
-  
-  let query = `
-    SELECT 
-      tt.*,
-      nv_thuc_hien.ten_nhan_vien as ten_nguoi_truc_thay,
-      nv_thuc_hien.ma_nhan_vien as ma_nguoi_truc_thay,
-      nv_dang_ky.ten_nhan_vien as ten_nguoi_duoc_truc_thay,
-      nv_dang_ky.ma_nhan_vien as ma_nguoi_duoc_truc_thay,
-      lt.ngay,
-      lt.ca
-    FROM truc_thay tt
-    INNER JOIN nhanvien nv_thuc_hien ON tt.nguoi_thuc_hien_id = nv_thuc_hien.id
-    INNER JOIN nhanvien nv_dang_ky ON tt.nguoi_dang_ky_id = nv_dang_ky.id
-    INNER JOIN lich_truc lt ON tt.lich_truc_goc_id = lt.id
-    WHERE 1=1
-  `;
-  
-  const params = [];
-  if (month && year) {
-    query += ' AND MONTH(lt.ngay) = ? AND YEAR(lt.ngay) = ?';
-    params.push(month, year);
-  }
-  
-  query += ' ORDER BY tt.created_at DESC';
-  
-  try {
-    const [rows] = await db.query(query, params);
-    res.json(rows);
-  } catch (error) {
-    console.error('Lỗi lấy lịch sử trực thay:', error);
-    res.status(500).json({ message: 'Lỗi server' });
-  }
-});
-
-// ======================
 // ADMIN API: DUYỆT/TỪ CHỐI TRỰC THAY
 // ======================
 router.post('/admin/tructhay/:id/approve', auth, requireAdmin, async (req, res) => {
@@ -1466,7 +1397,7 @@ router.post('/admin/tructhay/:id/approve', auth, requireAdmin, async (req, res) 
     if (approve) {
       // Duyệt: cập nhật trạng thái thành active
       await db.query(
-        'UPDATE truc_thay SET trang_thai = "active", updated_at = NOW() WHERE id = ?',
+        'UPDATE truc_thay SET trang_thai = "active", admin_duyet = 1, updated_at = NOW() WHERE id = ?',
         [id]
       );
 
@@ -1658,7 +1589,6 @@ router.get('/schedule', auth, async (req, res) => {
         tt.id as truc_thay_id,
         tt.nguoi_dang_ky_id,
         tt.nguoi_thuc_hien_id,
-        tt.lich_truc_goc_id, 
         tt.lich_truc_ao_id,
         tt.ly_do,
         tt.trang_thai as trang_thai_truc_thay,
@@ -1684,7 +1614,7 @@ router.get('/schedule', auth, async (req, res) => {
       -- LEFT JOIN với truc_thay để lấy thông tin trực thay
       LEFT JOIN truc_thay tt ON 
         (lt.id = tt.lich_truc_goc_id OR lt.id = tt.lich_truc_ao_id)
-        AND tt.trang_thai IN ('active', 'completed', 'pending')
+        AND tt.trang_thai IN ('active', 'completed')
       
       -- LEFT JOIN để lấy thông tin người trực thay (B)
       LEFT JOIN nhanvien nv_thuc_hien ON tt.nguoi_thuc_hien_id = nv_thuc_hien.id
@@ -2970,51 +2900,6 @@ router.get('/admin/pending-time-adjustments', auth, requireAdmin, async (req, re
     res.json(rows);
   } catch (error) {
     console.error('Lỗi lấy yêu cầu điều chỉnh:', error);
-    res.status(500).json({ message: 'Lỗi server' });
-  }
-});
-
-// ======================
-// ADMIN API: Lấy tất cả lịch sử yêu cầu điều chỉnh giờ (có lọc theo tháng/năm)
-// ======================
-router.get('/admin/time-adjustments/all', auth, requireAdmin, async (req, res) => {
-  const { month, year } = req.query;
-  
-  let query = `
-    SELECT 
-      yc.*,
-      lt.trang_thai as trang_thai_lich,
-      lt.gio_vao as gio_vao_hien_tai,
-      lt.gio_ra as gio_ra_hien_tai,
-      lt.thoi_gian_lam as thoi_gian_lam_hien_tai,
-      CASE yc.ca
-        WHEN 'ca1' THEN 'Ca 1: 7:00-9:30'
-        WHEN 'ca2' THEN 'Ca 2: 9:30-12:30'
-        WHEN 'ca3' THEN 'Ca 3: 12:30-15:00'
-        WHEN 'ca4' THEN 'Ca 4: 15:00-17:30'
-      END as ten_ca,
-      CASE yc.loai_yeu_cau
-        WHEN 'checkin' THEN 'Check-in'
-        WHEN 'checkout' THEN 'Check-out'
-      END as ten_loai_yeu_cau
-    FROM yeu_cau_dieu_chinh_gio yc
-    INNER JOIN lich_truc lt ON yc.lich_truc_id = lt.id
-    WHERE 1=1
-  `;
-  
-  const params = [];
-  if (month && year) {
-    query += ' AND MONTH(yc.ngay) = ? AND YEAR(yc.ngay) = ?';
-    params.push(month, year);
-  }
-  
-  query += ' ORDER BY yc.created_at DESC';
-  
-  try {
-    const [rows] = await db.query(query, params);
-    res.json(rows);
-  } catch (error) {
-    console.error('Lỗi lấy lịch sử yêu cầu điều chỉnh:', error);
     res.status(500).json({ message: 'Lỗi server' });
   }
 });
