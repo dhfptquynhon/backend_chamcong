@@ -48,6 +48,17 @@ const getMonthlyHours = async (ma_nhan_vien, month, year) => {
   return Number(rows[0]?.total_hours || 0);
 };
 
+// Helper: kiểm tra checkout sớm (dưới 30 phút)
+const isEarlyCheckout = (checkInTime, checkOutTime) => {
+  if (!checkInTime || !checkOutTime) return false;
+  
+  const checkIn = new Date(`1970-01-01T${checkInTime}`);
+  const checkOut = new Date(`1970-01-01T${checkOutTime}`);
+  const diffMinutes = (checkOut - checkIn) / (1000 * 60);
+  
+  return diffMinutes < 30; // Dưới 30 phút là checkout sớm
+};
+
 // Hàm kiểm tra xem có thể check-out không (LUÔN CHO PHÉP GỬI YÊU CẦU CHO QUÁ KHỨ)
 const canCheckOut = (cell) => {
   if (!cell) return { canCheckOut: false, reason: 'Không có thông tin ca' };
@@ -1638,6 +1649,102 @@ router.get('/admin/overview-stats', auth, requireAdmin, async (req, res) => {
 });
 
 // ======================
+// ADMIN API: Hoàn tác checkout (trả lại trạng thái đang làm) - CẢNH BÁO CHECKOUT SỚM
+// ======================
+router.post('/admin/schedule/:id/revert-checkout', auth, requireAdmin, async (req, res) => {
+  const { id } = req.params;
+  const admin_id = req.employee.id;
+
+  try {
+    // Lấy thông tin ca làm việc
+    const [rows] = await db.query('SELECT * FROM lich_truc WHERE id = ?', [id]);
+    if (rows.length === 0) {
+      return res.status(404).json({ message: 'Không tìm thấy ca làm việc' });
+    }
+
+    const record = rows[0];
+
+    // Chỉ cho phép hoàn tác nếu ca đã checkout
+    if (record.trang_thai !== 'checked_out') {
+      return res.status(400).json({ message: 'Chỉ có thể hoàn tác checkout cho ca đã hoàn thành' });
+    }
+
+    // Kiểm tra xem có phải checkout sớm không (dưới 30 phút)
+    const isEarly = record.gio_vao && record.gio_ra ? 
+      isEarlyCheckout(record.gio_vao, record.gio_ra) : false;
+
+    // BẮT ĐẦU TRANSACTION
+    await db.query('START TRANSACTION');
+
+    try {
+      // Cập nhật: quay lại trạng thái 'checked_in', xóa giờ ra và thời gian làm
+      await db.query(
+        `UPDATE lich_truc 
+         SET trang_thai = 'checked_in', 
+             gio_ra = NULL, 
+             thoi_gian_lam = NULL, 
+             updated_at = NOW(),
+             ghi_chu = CONCAT(
+               COALESCE(ghi_chu, ''), 
+               ' | Admin hoàn tác checkout lúc ', NOW(),
+               CASE WHEN ? = 1 THEN ' (Checkout sớm dưới 30 phút)' ELSE '' END
+             )
+         WHERE id = ?`,
+        [isEarly ? 1 : 0, id]
+      );
+
+      // Ghi log hành động
+      await db.query(
+        `INSERT INTO admin_logs 
+         (admin_id, action, target_type, target_id, details) 
+         VALUES (?, 'revert_checkout', 'lich_truc', ?, ?)`,
+        [
+          admin_id, 
+          id, 
+          JSON.stringify({
+            old_status: 'checked_out',
+            new_status: 'checked_in',
+            old_gio_ra: record.gio_ra,
+            old_thoi_gian_lam: record.thoi_gian_lam,
+            is_early_checkout: isEarly,
+            gio_vao: record.gio_vao
+          })
+        ]
+      );
+
+      await db.query('COMMIT');
+
+      // Thông báo kết quả
+      let message = 'Đã hoàn tác checkout thành công';
+      if (isEarly) {
+        message = 'Đã hoàn tác checkout thành công. Người dùng đã checkout sớm (dưới 30 phút sau check-in).';
+      }
+
+      res.json({ 
+        success: true,
+        message,
+        warning: isEarly ? 'Cảnh báo: Người dùng đã checkout sớm' : null,
+        data: {
+          id,
+          is_early_checkout: isEarly,
+          gio_vao: record.gio_vao,
+          gio_ra_cu: record.gio_ra,
+          thoi_gian_lam_cu: record.thoi_gian_lam
+        }
+      });
+
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    }
+
+  } catch (error) {
+    console.error('Lỗi revert checkout:', error);
+    res.status(500).json({ message: 'Lỗi server' });
+  }
+});
+
+// ======================
 // API: LẤY LỊCH TRỰC THEO THÁNG (ĐÃ CẬP NHẬT HIỂN THỊ TRỰC THAY - PHIÊN BẢN MỚI)
 // ======================
 router.get('/schedule', auth, async (req, res) => {
@@ -2635,10 +2742,14 @@ router.post('/truc-thay/checkout/:lich_truc_ao_id', auth, async (req, res) => {
     const checkOutTime = new Date(`${new Date().toISOString().split('T')[0]}T${currentTime}`);
     const workDuration = Math.max(0, (checkOutTime - checkInTime) / (1000 * 60 * 60));
 
+    // Kiểm tra checkout sớm (dưới 30 phút)
+    const isEarly = isEarlyCheckout(virtualSchedule.gio_vao, currentTime);
+
     console.log('Thời gian làm việc:', {
       vào: virtualSchedule.gio_vao,
       ra: currentTime,
-      tổng: workDuration.toFixed(2) + ' giờ'
+      tổng: workDuration.toFixed(2) + ' giờ',
+      is_early: isEarly
     });
 
     // 4. BẮT ĐẦU TRANSACTION
@@ -2665,15 +2776,23 @@ router.post('/truc-thay/checkout/:lich_truc_ao_id', auth, async (req, res) => {
 
       await db.query('COMMIT');
 
+      // Thông báo kết quả
+      let message = `Check-out thành công! Đã làm được ${workDuration.toFixed(2)} giờ cho ${ten_nguoi_dang_ky}`;
+      if (isEarly) {
+        message = `Check-out thành công! Đã làm được ${workDuration.toFixed(2)} giờ cho ${ten_nguoi_dang_ky}. Cảnh báo: Bạn đã checkout sớm (dưới 30 phút sau check-in).`;
+      }
+
       res.json({
         success: true,
-        message: `Check-out thành công! Đã làm được ${workDuration.toFixed(2)} giờ cho ${ten_nguoi_dang_ky}`,
+        message,
+        warning: isEarly ? 'Bạn đã checkout sớm (dưới 30 phút sau check-in)' : null,
         note: `✅ Số giờ làm đã được tính cho ${ten_nguoi_dang_ky}`,
         data: {
           lich_truc_ao_id: lich_truc_ao_id,
           lich_truc_goc_id: lich_truc_goc_id,
           gio_ra: currentTime,
           thoi_gian_lam: workDuration.toFixed(2),
+          is_early_checkout: isEarly,
           nguoi_duoc_truc_thay: ten_nguoi_dang_ky
         }
       });
@@ -3937,7 +4056,7 @@ router.post('/schedule/:id/checkin', auth, async (req, res) => {
 });
 
 // ======================
-// CHECK-OUT (CÓ KIỂM TRA CHƯA TỚI GIỜ LÀM) - ĐÃ SỬA
+// CHECK-OUT (CÓ KIỂM TRA CHƯA TỚI GIỜ LÀM VÀ CẢNH BÁO CHECKOUT SỚM) - ĐÃ SỬA
 // ======================
 router.post('/schedule/:id/checkout', auth, async (req, res) => {
   const { ma_nhan_vien } = req.employee;
@@ -4016,6 +4135,9 @@ router.post('/schedule/:id/checkout', auth, async (req, res) => {
       const [currentHours, currentMinutes] = currentTime.split(':').map(Number);
       const currentTimeInMinutes = currentHours * 60 + currentMinutes;
       
+      // Kiểm tra checkout sớm (dưới 30 phút)
+      const isEarly = isEarlyCheckout(record.gio_vao, currentTime);
+      
       // Nếu trong giờ làm
       if (currentTimeInMinutes <= endTimeInMinutes) {
         // Check-out bình thường
@@ -4037,11 +4159,19 @@ router.post('/schedule/:id/checkout', auth, async (req, res) => {
           [record.nhan_vien_id, record.ngay]
         );
 
+        // Thông báo kết quả
+        let message = 'Check-out thành công';
+        if (isEarly) {
+          message = 'Check-out thành công. Cảnh báo: Bạn đã checkout sớm (dưới 30 phút sau check-in).';
+        }
+
         return res.json({
-          message: 'Check-out thành công',
+          message,
+          warning: isEarly ? 'Bạn đã checkout sớm (dưới 30 phút sau check-in)' : null,
           status: 'checked_out',
           workDuration: workDuration.toFixed(2),
           totalWorkTime: totalWorkResult[0]?.tong_thoi_gian || 0,
+          is_early_checkout: isEarly,
           time: currentTime,
           record: { 
             ...record, 
@@ -4449,6 +4579,22 @@ router.delete('/schedule/:id/cancel', auth, async (req, res) => {
     res.status(500).json({ message: 'Lỗi server' });
   }
 });
+
+// ======================
+// ADMIN LOGS TABLE (nếu chưa có)
+// ======================
+// Để đảm bảo tính năng hoạt động, cần tạo bảng admin_logs
+// CREATE TABLE IF NOT EXISTS admin_logs (
+//   id INT AUTO_INCREMENT PRIMARY KEY,
+//   admin_id INT NOT NULL,
+//   action VARCHAR(50) NOT NULL,
+//   target_type VARCHAR(50) NOT NULL,
+//   target_id INT NOT NULL,
+//   details TEXT,
+//   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+//   INDEX (admin_id),
+//   INDEX (target_type, target_id)
+// );
 
 // Hàm chuyển đổi giờ thập phân sang giờ:phút
 function formatHours(decimalHours) {
